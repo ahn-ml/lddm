@@ -1,0 +1,9 @@
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 -u -m main \
+  loader.batch_size=2 \
+  loader.eval_batch_size=2 \
+  data=openwebtext-split \
+  wandb.name=lddm-u-owt \
+  model=small \
+  algo=lddm_u \
+  model.length=1024 \
+  eval.compute_generative_perplexity=False

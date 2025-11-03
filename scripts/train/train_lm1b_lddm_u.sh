@@ -1,0 +1,9 @@
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 -u -m main \
+  loader.batch_size=32 \
+  loader.eval_batch_size=32 \
+  data=lm1b \
+  wandb.name=lddm-u-lm1b \
+  model=small \
+  algo=lddm_u \
+  model.length=128 \
+  eval.compute_generative_perplexity=False
