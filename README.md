@@ -2,7 +2,8 @@
 
 [[Paper]](https://arxiv.org/abs/2510.19304) [[Project Page]](https://sites.google.com/view/lddms/home)
 
-Official PyTorch implementation of **Loopholing Discrete Diffusion Models (LDDMs)** for text generation.
+This repository provides the official PyTorch implementation for **Loopholing Discrete Diffusion Models (LDDMs)**.
+Our work demonstrates how maintaining latent embeddings that preserve prediction information in discrete diffusion enables significant performance improvements in text generation tasks.
 
 <img src="assets/lddm_large_resolution.gif" alt="LDDM demo">
 
