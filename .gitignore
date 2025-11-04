@@ -4,3 +4,4 @@
 **/checkpoints/
 **/wandb/
 *.log
+**/harness_results/

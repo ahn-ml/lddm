@@ -5,5 +5,6 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 -u -m main \
   wandb.name=lddm-m-lm1b \
   model=small \
   algo=lddm_m \
+  algo.self_cond_rate=0.9 \
   model.length=128 \
   eval.compute_generative_perplexity=False
