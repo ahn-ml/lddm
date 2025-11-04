@@ -46,7 +46,7 @@ class AR(trainer_base.TrainerBase):
     return - output.gather(
       -1, output_tokens[:, :, None])[:, :, 0]
 
-  def generate_samples(self, num_samples, **kwargs):
+  def generate_samples(self, num_samples, kl_step=20, **kwargs):
     # precompute token buffer
     num_pred_tokens = self.num_tokens - 1
     x = torch.zeros(
@@ -79,7 +79,7 @@ class MDLM(trainer_base.AbsorbingState):
     self._validate_configuration()
 
   def _validate_configuration(self):
-    pass
+    assert self.config.sampling.predictor == 'ancestral' # for safety
 
   def _process_model_output(self, model_output, xt, sigma):
     del sigma
@@ -221,6 +221,7 @@ class SEDDAbsorb(trainer_base.AbsorbingState):
   def _validate_configuration(self):
     super()._validate_configuration()
     assert self.config.sampling.predictor == 'analytic'
+    assert self.config.algo.loophole == False
 
   def _get_score(self, x, sigma):
     return self.forward(x, sigma).exp()
@@ -391,15 +392,18 @@ class UDLM(trainer_base.UniformState):
     sigma_t = self._sigma_from_alphat(alpha_t)
     assert alpha_t.ndim == 2
     
+    pred_x = self.forward(x, sigma_t)
+    if self.config.sampling.use_float64:
+      pred_x = pred_x.to(torch.float64)
     q_xs = self._compute_posterior(
-      x=self.forward(x, sigma_t).exp(),
+      x=pred_x.exp(),
       xt=x,
       alpha_s=alpha_s,
       alpha_t=alpha_t)
     if self.p_nucleus < 1:
       q_xs = utils.top_k_top_p_filtering(
         q_xs.log(), top_p=self.p_nucleus)
-    return None, trainer_base.sample_categorical(q_xs)
+    return None, trainer_base.sample_categorical(q_xs), pred_x
 
 
 class LDDM_U(UDLM):
@@ -428,6 +432,8 @@ class LDDM_U(UDLM):
     assert alpha_t.ndim == 2
     
     pred_x, latent = self.forward(x, sigma_t, prev_latent=prev_latent)
+    if self.config.sampling.use_float64:
+      pred_x = pred_x.to(torch.float64)
     q_xs = self._compute_posterior(
       x=pred_x.exp(),
       xt=x,
@@ -436,4 +442,4 @@ class LDDM_U(UDLM):
     if self.p_nucleus < 1:
       q_xs = utils.top_k_top_p_filtering(
         q_xs.log(), top_p=self.p_nucleus)
-    return None, trainer_base.sample_categorical(q_xs), latent
+    return None, trainer_base.sample_categorical(q_xs), latent, pred_x

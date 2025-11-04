@@ -1,6 +1,6 @@
 checkpoint_path=/data/mingyu/loopholing_ckpts/owt_sedd_1M.ckpt
 
-CUDA_VISIBLE_DEVICES=0 python main.py \
+CUDA_VISIBLE_DEVICES=1 python main.py \
   mode=sample_eval \
   loader.eval_batch_size=4 \
   data=openwebtext-split \

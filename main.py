@@ -14,6 +14,7 @@ import dataloader
 import utils
 from tqdm import tqdm
 import numpy as np
+import matplotlib.pyplot as plt
 
 import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
@@ -111,6 +112,27 @@ def self_bleu(sentences, max_n=4):
 
     return np.mean(scores)
 
+def save_kl_divergence(total_kl, kl_step, img_path="kl_divergence.png", log_path="kl_divergence.json"):
+    plt.clf() 
+    plt.plot([kl_step * i for i in range(len(total_kl))],total_kl)
+    plt.title("KL divergence over steps")
+    plt.yscale("log")
+    plt.ylabel("KL divergence (log scale)")
+    plt.xlabel("step")
+    plt.savefig(img_path, dpi=300, bbox_inches="tight")
+    with open(log_path, 'w') as f:
+      json.dump(total_kl, f)
+
+def save_entropy(total_entropy, img_path="entropy.png", log_path="entropy.json"):
+    plt.clf()
+    plt.plot([i for i in range(len(total_entropy))],total_entropy)
+    plt.title("Entropy of tokens")
+    plt.yscale("log")
+    plt.ylabel("Entropy (log scale)")
+    plt.xlabel("step")
+    plt.savefig(img_path, dpi=300, bbox_inches="tight")
+    with open(log_path, 'w') as f:
+      json.dump(total_entropy, f)
 
 def _generate_samples(diffusion_model, config, logger,
                       tokenizer):
@@ -127,6 +149,9 @@ def _generate_samples(diffusion_model, config, logger,
   stride_length = config.sampling.stride_length
   num_strides = config.sampling.num_strides
   all_samples = []
+  total_kl = []
+  total_entropy = []
+  kl_step = config.eval.kl_step
   for _ in tqdm(range(config.sampling.num_sample_batches), desc="Generating samples"):
     if config.sampling.semi_ar:
       _, intermediate_samples, _ = model.restore_model_and_semi_ar_sample(
@@ -140,8 +165,10 @@ def _generate_samples(diffusion_model, config, logger,
       # and diffusion.compute_generative_perplexity() discards
       # any text after the first EOS token.
     else:
-      samples = model.restore_model_and_sample(
-        num_steps=config.sampling.steps)
+      samples, kl_steps, entropy_steps = model.restore_model_and_sample(
+        num_steps=config.sampling.steps, kl_step=kl_step)
+      total_kl += kl_steps
+      total_entropy += entropy_steps
       model.metrics.record_entropy(samples)
       text_samples = model.tokenizer.batch_decode(samples)
       model.metrics.record_generative_perplexity(
@@ -162,6 +189,12 @@ def _generate_samples(diffusion_model, config, logger,
                'entropy': entropy,
                 'self_bleu': self_bleu_score,
                'generated_seqs': all_samples}, f, indent=4)
+
+  if config.eval.kl_divergence_eval:
+    total_kl = torch.stack(total_kl, dim=0).mean(dim=0).cpu().numpy().tolist()
+    total_entropy = torch.stack(total_entropy, dim=0).mean(dim=0).cpu().numpy().tolist()
+    save_kl_divergence(total_kl, kl_step)
+    save_entropy(total_entropy)
   print('Samples saved at:', samples_path)
 
 def _eval_ppl(diffusion_model, config, logger, tokenizer):

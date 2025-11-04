@@ -34,6 +34,9 @@ Evaluation scripts are in `scripts/eval/`:
 - **Perplexity**: `eval_lm1b_lddm_m.sh`, `eval_owt_lddm_m.sh`
 - **Generation**: `gen_owt_lddm_m.sh`
 
+Downstream task scripts are in `scripts/lm_eval/`:
+- **Downstream**: `lm_eval.sh`
+
 Example:
 ```bash
 bash scripts/eval/eval_owt_lddm_m.sh

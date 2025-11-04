@@ -85,7 +85,10 @@ class TrainerBase(L.LightningModule):
     self.T = self.config.algo.T
     self.num_tokens = self.config.model.length
     self.softplus = torch.nn.Softplus()
-    self.p_nucleus = self.config.sampling.p_nucleus
+    if hasattr(self.config.sampling, 'p_nucleus'):
+      self.p_nucleus = self.config.sampling.p_nucleus
+    else:
+      self.p_nucleus = 1.0
     # Noise Schedule
     self.noise = LogLinear()
 
@@ -307,7 +310,7 @@ class TrainerBase(L.LightningModule):
       samples, text_samples = None, None
       for _ in range(
         self.config.sampling.num_sample_batches):
-        samples = self.generate_samples(
+        samples, _, _ = self.generate_samples(
           num_samples=self.config.loader.eval_batch_size)
         
         self.metrics.record_entropy(samples)
@@ -356,19 +359,21 @@ class TrainerBase(L.LightningModule):
                       'name': 'trainer/lr'}
     return [optimizer], [scheduler_dict]
 
-  def generate_samples(self, num_samples, num_steps, eps):
+  def generate_samples(self, num_samples, num_steps, eps, kl_step=20):
     raise NotImplementedError
 
-  def restore_model_and_sample(self, num_steps, eps=1e-5):
+  def restore_model_and_sample(self, num_steps, eps=1e-5, kl_step=20):
     """Generate samples from the model."""
     # Lightning auto-casting is not working in this method for some reason
     self._eval_mode()
-    samples = self.generate_samples(
+    samples, kl_list, entropy_list = self.generate_samples(
       num_samples=self.config.loader.eval_batch_size,
       num_steps=num_steps,
-      eps=eps)
+      eps=eps,
+      kl_step=kl_step)
     self._train_mode()
-    return samples
+    
+    return samples, kl_list, entropy_list
 
   def _process_model_input(self, x0, valid_tokens):
     raise NotImplementedError
@@ -513,9 +518,27 @@ class Diffusion(TrainerBase):
   def _ancestral_update(self, x, t, dt, p_x0, noise_removal_step, prev_latent=None):
     raise NotImplementedError
 
+  def _compute_entropy(self, log_p_x0, prev_x):
+    entropy = -(log_p_x0 * log_p_x0.exp()).sum(dim=-1)
+    if self.config.algo.name in ['mdlm', 'lddm_m']: # addressing masked tokens
+      mask_num = torch.sum(prev_x==self.mask_index, dim=1, keepdim=True)
+      entropy = torch.where(prev_x==self.mask_index, entropy, torch.zeros_like(entropy)).sum(dim=1, keepdim=True) / mask_num
+    else:
+      entropy = entropy.mean(dim=1, keepdim=True)
+    return entropy
+
+  def _compute_kldivergence(self, prev_p, prev_log_p, log_p_x0, prev_x):
+    kl = torch.sum(prev_p * (prev_log_p - log_p_x0), dim=-1)
+    if self.config.algo.name in ['mdlm', 'lddm_m']: # addressing masked tokens
+      mask_num = torch.sum(prev_x==self.mask_index, dim=1, keepdim=True)
+      kl = torch.where(prev_x==self.mask_index, kl, torch.zeros_like(kl)).sum(dim=1, keepdim=True) / mask_num
+    else:
+      kl = kl.mean(dim=1, keepdim=True)
+    return kl
+
   @torch.no_grad()
   def generate_samples(self, num_samples, num_steps=None,
-                       eps=1e-5):
+                       eps=1e-5, kl_step=20):
     """Generate samples from the model."""
     # Lightning auto-casting is not working in this method for some reason
     if num_steps is None:
@@ -527,18 +550,37 @@ class Diffusion(TrainerBase):
     p_x0_cache = None
 
     latent = None
+    kl_list = []
+    entropy_list = []
+    check_step = kl_step
+    prev_log_p = None
+    prev_p = None
+    
+
     for i in range(num_steps):
+      if self.config.eval.kl_divergence_eval:
+        prev_x = x.clone()
       t = timesteps[i] * torch.ones(
         x.shape[0], 1, device=self.device)
       if self.sampler == 'ancestral':
         if self.config.algo.loophole:
-          _, x, latent = self._ancestral_update(
+          _, x, latent, log_p_x0 = self._ancestral_update(
             x=x, t=t, dt=dt, p_x0=None, noise_removal_step=False, prev_latent=latent)
         else:
-          _, x = self._ancestral_update(
+          _, x, log_p_x0 = self._ancestral_update(
             x=x, t=t, dt=dt, p_x0=None)
+        if not self.config.eval.kl_divergence_eval:
+          continue
+        
+        # Compute entropy and KL divergence
+        entropy = self._compute_entropy(log_p_x0, prev_x)
+        entropy_list.append(entropy.cpu())
+        if prev_log_p is not None and (i % check_step)==0:
+          kl = self._compute_kldivergence(prev_p, prev_log_p, log_p_x0, prev_x)
+          kl_list.append(kl.cpu())
+        
       elif self.sampler == 'ancestral_cache':
-        p_x0_cache, x_next = self._ancestral_update(
+        p_x0_cache, x_next, log_p_x0 = self._ancestral_update(
           x=x, t=t, dt=dt, p_x0=p_x0_cache)
         if (not torch.allclose(x_next, x)
             or self.time_conditioning):
@@ -547,6 +589,15 @@ class Diffusion(TrainerBase):
         x = x_next
       else:
         x = self._analytic_update(x=x,t=t, dt=dt)
+      
+      if self.config.eval.kl_divergence_eval:
+        if (i % check_step) == 0:
+          prev_log_p = log_p_x0.clone()
+          prev_p = prev_log_p.exp()
+    if self.config.eval.kl_divergence_eval:
+      kl_list = torch.cat(kl_list, dim=1)
+      entropy_list = torch.cat(entropy_list, dim=1)
+
 
     t0 = timesteps[-1] * torch.ones(x.shape[0], 1,
                                     device=self.device)
@@ -555,13 +606,13 @@ class Diffusion(TrainerBase):
         x = self._denoiser_update(x=x, t=t0)
       else:
         if self.config.algo.loophole:
-          _, x, latent = self._ancestral_update(
+          _, x, latent, log_p_x0 = self._ancestral_update(
             x=x, t=t0, dt=None,
             p_x0=p_x0_cache,
             noise_removal_step=True,
             prev_latent=latent)
         else:
-          _, x = self._ancestral_update(x=x, t=t0, dt=None,
+          _, x, log_p_x0 = self._ancestral_update(x=x, t=t0, dt=None,
                                   p_x0=p_x0_cache,
                                   noise_removal_step=True)
     elif self.config.sampling.noise_removal == 'greedy':
@@ -571,7 +622,7 @@ class Diffusion(TrainerBase):
         x = x_logits.argmax(dim=-1)
       else:
         x = self.forward(xt=x, sigma=sigma).argmax(dim=-1)
-    return x
+    return x, kl_list, entropy_list
 
   @torch.no_grad
   def _semi_ar_sampler(
@@ -714,8 +765,8 @@ class AbsorbingState(Diffusion):
     
     copy_flag = (x != self.mask_index).to(x.dtype)
     if self.config.algo.loophole:
-      return p_x0, copy_flag * x + (1 - copy_flag) * _x, latent
-    return p_x0, copy_flag * x + (1 - copy_flag) * _x
+      return p_x0, copy_flag * x + (1 - copy_flag) * _x, latent, logits
+    return p_x0, copy_flag * x + (1 - copy_flag) * _x, logits
 
   def _staggered_score(self, score, dsigma):
     score = score.clone()
@@ -763,6 +814,7 @@ class UniformState(Diffusion):
     assert self.parameterization == 'mean'
     if self.config.algo.name != 'distillation':
       assert self.T == 0
+    assert self.config.sampling.predictor == 'ancestral'
 
   def q_xt(self, x, alpha_t):
     """Computes the noisy sample xt.
