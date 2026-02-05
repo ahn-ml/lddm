@@ -20,6 +20,11 @@ import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from nltk.tokenize import word_tokenize
 
+# NOTE: PyTorch>=2.6 defaults to weights_only=True in torch.load.
+# This project uses legacy Lightning checkpoints that include non-tensor
+# hyperparameters (e.g., OmegaConf/Tokenizer objects), so force full load.
+os.environ.setdefault('TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD', '1')
+
 
 omegaconf.OmegaConf.register_new_resolver(
   'cwd', os.getcwd)
