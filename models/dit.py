@@ -494,6 +494,4 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
       for i in range(len(self.blocks)):
         x = self.blocks[i](x, rotary_cos_sin, c=t_cond)
       logits = self.output_layer(x, c=t_cond)
-    if self.loophole:
-      return logits, x
-    return logits
+    return logits, (x if self.loophole else None)

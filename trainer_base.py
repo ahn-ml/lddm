@@ -248,17 +248,10 @@ class TrainerBase(L.LightningModule):
 
   def forward(self, xt, sigma, prev_latent=None):
     sigma = self._process_sigma(sigma)
-    
-    if self.config.algo.loophole:
-      with torch.cuda.amp.autocast(dtype=torch.float32):
-        model_output, latent = self.backbone(xt, sigma, prev_latent=prev_latent)
-      return self._process_model_output(
-        model_output=model_output, xt=xt, sigma=sigma), latent
-    else:
-      with torch.cuda.amp.autocast(dtype=torch.float32):
-        model_output = self.backbone(xt, sigma, prev_latent=prev_latent)
-      return self._process_model_output(
-        model_output=model_output, xt=xt, sigma=sigma)
+    with torch.cuda.amp.autocast(dtype=torch.float32):
+      model_output, latent = self.backbone(xt, sigma, prev_latent=prev_latent)
+    return self._process_model_output(
+      model_output=model_output, xt=xt, sigma=sigma), latent
 
   def on_train_epoch_start(self):
     self.metrics.reset()
@@ -454,15 +447,11 @@ class Diffusion(TrainerBase):
     t0 = torch.zeros(1, x0.shape[0], dtype=self.dtype,
                      device=self.device)
     sigma_t0 = self._sigma_from_alphat(self.noise(t0)[1])
-    if self.config.algo.loophole:
-      model_output_t0, latent = self.forward(x0, sigma_t0, prev_latent=prev_latent)
-      return - torch.gather(input=model_output_t0,
-                            dim=-1,
-                            index=x0[:, :, None]).squeeze(-1), latent
-    model_output_t0 = self.forward(x0, sigma_t0)
-    return - torch.gather(input=model_output_t0,
+    model_output_t0, latent = self.forward(x0, sigma_t0, prev_latent=prev_latent)
+    loss = - torch.gather(input=model_output_t0,
                           dim=-1,
                           index=x0[:, :, None]).squeeze(-1)
+    return loss, latent
 
 
   def nll_per_token(self, model_output, xt, x0, alpha_t,
@@ -487,15 +476,12 @@ class Diffusion(TrainerBase):
     sigma = self._sigma_from_alphat(alpha_t)
 
     xt = self.q_xt(x0, alpha_t)
-    if self.config.algo.loophole:
-      latent=None
-      if torch.rand(1, device=x0.device) < self.config.algo.self_cond_rate: # self-conditioning
-        _, latent = self.forward(xt, sigma, prev_latent=latent)
-        log_x_theta, _ = self.forward(xt, sigma, prev_latent=latent.detach())
-      else:
-        log_x_theta, _ = self.forward(xt, sigma, prev_latent=None)
-    else:
-      log_x_theta = self.forward(xt, sigma=sigma)
+    latent = None
+    if (self.config.algo.loophole
+        and torch.rand(1, device=x0.device) < self.config.algo.self_cond_rate):
+      _, latent = self.forward(xt, sigma, prev_latent=None)
+      latent = latent.detach()
+    log_x_theta, _ = self.forward(xt, sigma, prev_latent=latent)
     utils.print_nans(log_x_theta, 'model_output')
     return self.nll_per_token(
       log_x_theta=log_x_theta,
@@ -563,12 +549,9 @@ class Diffusion(TrainerBase):
       t = timesteps[i] * torch.ones(
         x.shape[0], 1, device=self.device)
       if self.sampler == 'ancestral':
-        if self.config.algo.loophole:
-          _, x, latent, log_p_x0 = self._ancestral_update(
-            x=x, t=t, dt=dt, p_x0=None, noise_removal_step=False, prev_latent=latent)
-        else:
-          _, x, log_p_x0 = self._ancestral_update(
-            x=x, t=t, dt=dt, p_x0=None)
+        _, x, latent, log_p_x0 = self._ancestral_update(
+          x=x, t=t, dt=dt, p_x0=None,
+          noise_removal_step=False, prev_latent=latent)
         if not self.config.eval.kl_divergence_eval:
           continue
         
@@ -580,7 +563,7 @@ class Diffusion(TrainerBase):
           kl_list.append(kl.cpu())
         
       elif self.sampler == 'ancestral_cache':
-        p_x0_cache, x_next, log_p_x0 = self._ancestral_update(
+        p_x0_cache, x_next, _, log_p_x0 = self._ancestral_update(
           x=x, t=t, dt=dt, p_x0=p_x0_cache)
         if (not torch.allclose(x_next, x)
             or self.time_conditioning):
@@ -605,23 +588,13 @@ class Diffusion(TrainerBase):
       if self.sampler == 'analytic':
         x = self._denoiser_update(x=x, t=t0)
       else:
-        if self.config.algo.loophole:
-          _, x, latent, log_p_x0 = self._ancestral_update(
-            x=x, t=t0, dt=None,
-            p_x0=p_x0_cache,
-            noise_removal_step=True,
-            prev_latent=latent)
-        else:
-          _, x, log_p_x0 = self._ancestral_update(x=x, t=t0, dt=None,
-                                  p_x0=p_x0_cache,
-                                  noise_removal_step=True)
+        _, x, latent, log_p_x0 = self._ancestral_update(
+          x=x, t=t0, dt=None, p_x0=p_x0_cache,
+          noise_removal_step=True, prev_latent=latent)
     elif self.config.sampling.noise_removal == 'greedy':
       sigma = self._sigma_from_alphat(self.noise(t0)[1])
-      if self.config.algo.loophole:
-        x_logits, latent = self.forward(xt=x, sigma=sigma, prev_latent=latent)
-        x = x_logits.argmax(dim=-1)
-      else:
-        x = self.forward(xt=x, sigma=sigma).argmax(dim=-1)
+      x_logits, _ = self.forward(xt=x, sigma=sigma, prev_latent=latent)
+      x = x_logits.argmax(dim=-1)
     return x, kl_list, entropy_list
 
   @torch.no_grad
@@ -642,23 +615,16 @@ class Diffusion(TrainerBase):
       if target is not None:
         x[:, : -stride_length] = target
       for i in range(num_steps + 1):
-        if self.config.algo.loophole:
-          p_x0_cache, x_next, latent = self._ancestral_update(
-            x=x, t=(1 - i * dt) * ones, dt=dt,
-            p_x0=p_x0_cache, prev_latent=latent)
-        else:
-          p_x0_cache, x_next = self._ancestral_update(
-            x=x, t=(1 - i * dt) * ones, dt=dt, p_x0=p_x0_cache)
+        p_x0_cache, x_next, latent, _ = self._ancestral_update(
+          x=x, t=(1 - i * dt) * ones, dt=dt,
+          p_x0=p_x0_cache, prev_latent=latent)
         if (not torch.allclose(x_next, x)
             or self.time_conditioning):
           p_x0_cache = None
           sampling_steps += 1
         x = x_next
-      if self.config.algo.loophole:
-        x, latent = self.forward(x, 0 * ones, prev_latent=latent)
-        x = x.argmax(dim=-1)
-      else:
-        x = self.forward(x, 0 * ones).argmax(dim=-1)
+      x_logits, _ = self.forward(x, 0 * ones, prev_latent=latent)
+      x = x_logits.argmax(dim=-1)
       intermediate_tokens.append(
         x[:, :stride_length].cpu().numpy())
       target = x[:, stride_length:]
@@ -748,13 +714,11 @@ class AbsorbingState(Diffusion):
     else:
       _, alpha_s = self.noise(t - dt)
     assert alpha_t.ndim == 2
+    latent = prev_latent
+    logits = None
     if p_x0 is None:
-      if self.config.algo.loophole:
-        logits, latent = self.forward(
-          x, self._sigma_from_alphat(alpha_t), prev_latent=prev_latent)
-      else:
-        logits = self.forward(
-          x, self._sigma_from_alphat(alpha_t), prev_latent=prev_latent)
+      logits, latent = self.forward(
+        x, self._sigma_from_alphat(alpha_t), prev_latent=prev_latent)
       if self.config.sampling.use_float64:
         logits = logits.to(torch.float64)
       p_x0 = logits.exp()
@@ -762,11 +726,9 @@ class AbsorbingState(Diffusion):
     q_xs = p_x0 * (alpha_s - alpha_t)[:, :, None]
     q_xs[:, :, self.mask_index] = 1 - alpha_s
     _x = sample_categorical(q_xs)
-    
+
     copy_flag = (x != self.mask_index).to(x.dtype)
-    if self.config.algo.loophole:
-      return p_x0, copy_flag * x + (1 - copy_flag) * _x, latent, logits
-    return p_x0, copy_flag * x + (1 - copy_flag) * _x, logits
+    return p_x0, copy_flag * x + (1 - copy_flag) * _x, latent, logits
 
   def _staggered_score(self, score, dsigma):
     score = score.clone()

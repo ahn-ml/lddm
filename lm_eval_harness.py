@@ -88,11 +88,9 @@ def eval_suffix_nll(config, module, prefix, suffix, batch_size,
               (xt.shape[0], config.model.length - seq_length),
               device=xt.device) * module.mask_index], dim=-1)
           xt = xt.long()
+      log_x_theta, latent = module(xt, cond, prev_latent=None)
       if loophole:
-        log_x_theta, latent = module(xt, cond, prev_latent=None)
         log_x_theta, latent = module(xt, cond, prev_latent=latent)
-      else:
-        log_x_theta = module(xt, cond)
       if padding:
         log_x_theta = log_x_theta[:, :seq_length]
     token_nll = module.nll_per_token(log_x_theta, xt, x0, 
@@ -193,12 +191,9 @@ class MGMEvalWrapper(LM):
               device=self.device) * self.model.mask_index], dim=-1)
           seq = seq.long()
           
-      if loophole:
-        if latent is None:
-          logits, latent = self.model(seq, sigma, prev_latent=latent)
-        logits, latent = self.model(seq, sigma, prev_latent=latent)
-      else:
-        logits = self.model(seq, sigma)
+      if loophole and latent is None:
+        _, latent = self.model(seq, sigma, prev_latent=None)
+      logits, latent = self.model(seq, sigma, prev_latent=latent)
         
       if padding:
         seq = seq[:, :seq_length]

@@ -108,7 +108,7 @@ class MDLM(trainer_base.AbsorbingState):
     return log_p_theta * dalpha_t / (1 - alpha_t)
 
   def _get_score(self, x, sigma):
-    model_output = self.forward(x, sigma)
+    model_output, _ = self.forward(x, sigma)
     # score(x, t) = p_t(y) / p_t(x)
     # => log score(x, t) = log p_t(y) - log p_t(x)
     
@@ -210,7 +210,8 @@ class D3PMAbsorb(trainer_base.AbsorbingState):
       + term_2_coef * (term_2_log_nr - term_2_log_dr))
 
     diffusion_loss = self.T * L_vb_masked * (xt == self.mask_index)
-    return self._reconstruction_loss(x0) + diffusion_loss
+    recon_loss, _ = self._reconstruction_loss(x0)
+    return recon_loss + diffusion_loss
 
 
 class SEDDAbsorb(trainer_base.AbsorbingState):
@@ -224,7 +225,8 @@ class SEDDAbsorb(trainer_base.AbsorbingState):
     assert self.config.algo.loophole == False
 
   def _get_score(self, x, sigma):
-    return self.forward(x, sigma).exp()
+    output, _ = self.forward(x, sigma)
+    return output.exp()
 
   def _process_model_output(self, model_output, xt, sigma):
     esigm1_log = torch.where(
@@ -392,7 +394,7 @@ class UDLM(trainer_base.UniformState):
     sigma_t = self._sigma_from_alphat(alpha_t)
     assert alpha_t.ndim == 2
     
-    pred_x = self.forward(x, sigma_t)
+    pred_x, _ = self.forward(x, sigma_t)
     if self.config.sampling.use_float64:
       pred_x = pred_x.to(torch.float64)
     q_xs = self._compute_posterior(
@@ -403,7 +405,7 @@ class UDLM(trainer_base.UniformState):
     if self.p_nucleus < 1:
       q_xs = utils.top_k_top_p_filtering(
         q_xs.log(), top_p=self.p_nucleus)
-    return None, trainer_base.sample_categorical(q_xs), pred_x
+    return None, trainer_base.sample_categorical(q_xs), None, pred_x
 
 
 class LDDM_U(UDLM):
