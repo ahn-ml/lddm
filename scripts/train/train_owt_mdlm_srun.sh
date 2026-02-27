@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J mdlm-lm1b                   # Job name
+#SBATCH -J mdlm-owt                   # Job name
 #SBATCH -o watch_folder/%x_%j.out     # output file (%j expands to jobID)
 #SBATCH -N 2                          # Total number of nodes requested
 #SBATCH --get-user-env                # retrieve the users login environment

@@ -1,11 +1,36 @@
-# Loopholing Discrete Diffusion Models (LDDM)
+# Loopholing Discrete Diffusion Models
 
-[[Paper]](https://arxiv.org/abs/2510.19304) [[Project Page]](https://sites.google.com/view/lddms/home)
+[![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue)](https://iclr.cc/) [![arXiv](https://img.shields.io/badge/arXiv-2510.19304-b31b1b)](https://arxiv.org/abs/2510.19304) [![Project Page](https://img.shields.io/badge/Project-Page-green)](https://sites.google.com/view/lddms/home)
 
-This repository provides the official PyTorch implementation for **Loopholing Discrete Diffusion Models (LDDMs)**.
+This repository provides the official PyTorch implementation for **Loopholing Discrete Diffusion: Deterministic Bypass of the Sampling Wall**.
+
 Our work demonstrates how maintaining latent embeddings that preserve prediction information in discrete diffusion enables significant performance improvements in text generation tasks.
 
 <img src="assets/lddm_large_resolution.gif" alt="LDDM demo">
+
+## Code Structure
+
+```
+├── main.py              # Entry point (train / ppl_eval / sample_eval)
+├── algo.py              # All algorithm implementations
+├── trainer_base.py      # Base classes (Diffusion, AbsorbingState, UniformState)
+├── models/
+│   └── dit.py           # Diffusion Transformer backbone
+├── dataloader.py        # Data loading and tokenization
+├── metrics.py           # NLL, Perplexity, Generative Perplexity, etc.
+├── lm_eval_harness.py   # Downstream task evaluation (LM Eval Harness)
+├── configs/             # Hydra configs (algo, data, model, noise, strategy)
+└── scripts/             # Training and evaluation shell scripts
+```
+
+**Algorithm hierarchy:**
+- `MDLM` → `LDDM_M` (masked diffusion + loophole)
+- `UDLM` → `LDDM_U` (uniform diffusion + loophole)
+- Baselines: `SEDD`, `D3PM`, `AR`
+
+## Pretrained Checkpoints
+
+Pretrained checkpoints are available on [Google Drive](https://drive.google.com/drive/folders/1oiLQw8fe6UJ64OY09u9WZ8_xSckJ6Qb8?usp=sharing).
 
 ## Installation
 
