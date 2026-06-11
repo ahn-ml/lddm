@@ -4,7 +4,11 @@
 
 This repository provides the official PyTorch implementation for **Loopholing Discrete Diffusion: Deterministic Bypass of the Sampling Wall**.
 
-Our work demonstrates how maintaining latent embeddings that preserve prediction information in discrete diffusion enables significant performance improvements in text generation tasks.
+**Loopholing is deterministic latent propagation for discrete diffusion language models.**
+It bypasses the **sampling wall** by carrying pre-sampling distributional context across denoising steps, instead of discarding it after categorical sampling collapses predictions into one-hot tokens.
+
+By preserving this richer latent information, LDDMs stabilize denoising, reduce idle steps and oscillations, and improve non-autoregressive text generation. The latent pathway is trained efficiently with a self-conditioning objective, avoiding expensive trajectory unrolling.
+
 
 <img src="assets/lddm_large_resolution.gif" alt="LDDM demo">
 
