@@ -80,14 +80,11 @@ Baseline implementations (SEDD, MDLM, UDLM, D3PM, AR) are also included:
 ## Citation
 
 ```bibtex
-@misc{jo2025loopholingdiscretediffusiondeterministic,
-      title={Loopholing Discrete Diffusion: Deterministic Bypass of the Sampling Wall}, 
-      author={Mingyu Jo and Jaesik Yoon and Justin Deschenaux and Caglar Gulcehre and Sungjin Ahn},
-      year={2025},
-      eprint={2510.19304},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2510.19304}, 
+@article{jo2025loopholing,
+  title={Loopholing Discrete Diffusion: Deterministic Bypass of the Sampling Wall},
+  author={Jo, Mingyu and Yoon, Jaesik and Deschenaux, Justin and Gulcehre, Caglar and Ahn, Sungjin},
+  journal={arXiv preprint arXiv:2510.19304},
+  year={2025}
 }
 ```
 
