@@ -80,11 +80,13 @@ Baseline implementations (SEDD, MDLM, UDLM, D3PM, AR) are also included:
 ## Citation
 
 ```bibtex
-@article{jo2025loopholing,
-  title={Loopholing Discrete Diffusion: Deterministic Bypass of the Sampling Wall},
+@inproceedings{jo2026loopholing,
+  title={Loopholing discrete diffusion: Deterministic bypass of the sampling wall},
   author={Jo, Mingyu and Yoon, Jaesik and Deschenaux, Justin and Gulcehre, Caglar and Ahn, Sungjin},
-  journal={arXiv preprint arXiv:2510.19304},
-  year={2025}
+  booktitle={International Conference on Learning Representations},
+  volume={2026},
+  pages={93890--93918},
+  year={2026}
 }
 ```
 
